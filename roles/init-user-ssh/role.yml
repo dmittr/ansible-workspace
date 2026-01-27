@@ -1,0 +1,14 @@
+# here we forcing ansible to use root user and default ssh port to connect
+# define `vault_ansible_become_password` in your vault it will be used for privilege escalation later
+
+---
+- name: Base init
+  hosts: all
+  vars:
+    ansible_user: root
+    ansible_port: 22
+
+  roles:
+    - role: init-user-ssh
+      vars:
+        shared_password: "{{ vault_ansible_become_password }}"

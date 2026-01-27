@@ -1,0 +1,4 @@
+ansible_become_password: "{{ vault_ansible_become_password }}"
+
+some_var: "{{ vault_some_var }}"
+some_key: "{{ vault_some_key }}"

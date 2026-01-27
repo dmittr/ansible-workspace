@@ -1,0 +1,81 @@
+---
+- name: Create tgnotify script
+  ansible.builtin.copy:
+    dest: /usr/local/bin/tgnotify
+    content: |
+      #!/bin/bash
+
+      if [ -f "/etc/telegram.vars" ]; then
+        . /etc/telegram.vars
+      else
+        logger -s "tgnotify: Error - /etc/telegram.vars not found."
+        exit 1
+      fi
+
+      MESSAGE="${1:-"Empty argument"}"
+
+      if [ -z "$TGCHATID" ] || [ -z "$TGBOTID" ]; then
+        logger -s "tgnotify: Error - TGCHATID or TGBOTID not set from /etc/telegram.vars."
+        exit 1
+      fi
+
+      NOTIFICATION_TEXT="$(hostname): ${MESSAGE}"
+
+      # Send the message
+      curl --max-time 3 -s -X POST "https://api.telegram.org/bot${TGBOTID}/sendMessage" \
+        -d "chat_id=${TGCHATID}" -d "text=${NOTIFICATION_TEXT}" > /dev/null 2>&1
+    mode: '0755'
+  register: script_changed
+
+- name: Create telegram.vars file
+  ansible.builtin.copy:
+    dest: /etc/telegram.vars
+    content: |
+      export TGCHATID="{{ tg_notify_chat_id }}"
+      export TGBOTID="{{ vault_tg_notify_bot_id }}"
+    mode: '0600'
+
+- name: Create startup-tg-notify systemd service
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/startup-tg-notify.service
+    content: |
+      [Unit]
+      Description=Startup-TG-Notify
+      After=network.target
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/bin/bash -c '/usr/local/bin/tgnotify "System started!"'
+      RemainAfterExit=yes
+
+      [Install]
+        WantedBy=multi-user.target
+    mode: '0644'
+
+- name: Enable startup-tg-notify service
+  ansible.builtin.systemd:
+    name: startup-tg-notify.service
+    enabled: yes
+
+- name: Grant sudo access for tgnotify
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/tgnotify
+    content: 'ALL ALL = NOPASSWD: /usr/local/bin/tgnotify'
+    mode: '0440'
+
+- name: Create tg_login_notify.sh script
+  ansible.builtin.copy:
+    dest: /etc/profile.d/tg_login_notify.sh
+    content: |
+      if [ -z "$SSH_CONNECTION" ] && [ -z "$SUDO_USER" ]; then
+          sudo /usr/local/bin/tgnotify "Login $(whoami) on $(tty)" 2>&1 > /dev/null
+      fi
+    mode: '0644'
+
+- name: Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: yes
+
+- name: "Set default zone to drop via command"
+  ansible.builtin.command: /usr/local/bin/tgnotify "Ansible message"
+  when: script_changed.changed

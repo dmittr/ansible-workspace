@@ -1,0 +1,4 @@
+# encrypt me please
+vault_ansible_become_password: "my super-duper pass for sudo"
+vault_some_var: "secret var"
+vault_some_key: "secret key"

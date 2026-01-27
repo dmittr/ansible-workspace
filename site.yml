@@ -1,0 +1,8 @@
+---
+- name: site setup
+  hosts: servers
+
+  roles:
+    - tgnotify
+    - docker
+    

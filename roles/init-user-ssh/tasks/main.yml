@@ -1,0 +1,109 @@
+
+---
+- name: "Add user {{ hostvars[inventory_hostname]['ansible_user'] }}"
+  become: yes
+  ansible.builtin.user:
+    name: "{{ hostvars[inventory_hostname]['ansible_user'] }}"
+    shell: /bin/bash
+    groups: wheel
+    append: yes
+  register: user_changed
+
+- name: "Set user password separately"
+  become: yes
+  ansible.builtin.user:
+    name: "{{ hostvars[inventory_hostname]['ansible_user'] }}"
+    password: "{{ shared_password | password_hash('sha512') }}"
+  when: user_changed.changed
+
+- name: "Test if authorized_keys exists"
+  become: yes
+  ansible.builtin.stat:
+    path: /root/.ssh/authorized_keys
+  register: root_ssh_key
+
+- name: "Create .ssh folder"
+  become: yes
+  ansible.builtin.file:
+    path: "/home/{{ hostvars[inventory_hostname]['ansible_user'] }}/.ssh"
+    state: directory
+    owner: "{{ hostvars[inventory_hostname]['ansible_user'] }}"
+    group: "{{ hostvars[inventory_hostname]['ansible_user'] }}"
+    mode: '0700'
+  when: root_ssh_key.stat.exists
+
+- name: "Copy authorized_keys from root"
+  become: yes
+  ansible.builtin.copy:
+    src: /root/.ssh/authorized_keys
+    dest: "/home/{{ hostvars[inventory_hostname]['ansible_user'] }}/.ssh/authorized_keys"
+    remote_src: yes
+    owner: "{{ hostvars[inventory_hostname]['ansible_user'] }}"
+    group: "{{ hostvars[inventory_hostname]['ansible_user'] }}"
+    mode: '0600'
+  when: root_ssh_key.stat.exists
+
+- name: "Install firewalld"
+  ansible.builtin.dnf:
+    name: firewalld
+    state: present
+  register: firewalld_change
+
+- name: "Ensure firewalld service is unmasked and enabled"
+  ansible.builtin.systemd:
+    name: firewalld
+    state: started
+    enabled: yes
+    masked: no
+  register: firewalld_change
+
+- name: "Ensure custom SSH port is allowed in {{ firewalld_default_zone }} zone"
+  ansible.builtin.firewalld:
+    zone: "{{ firewalld_default_zone }}"
+    port: "{{ hostvars[inventory_hostname]['ansible_port'] }}/tcp"
+    permanent: yes
+    state: enabled
+    immediate: yes
+
+- name: "Set default zone to {{ firewalld_default_zone }} via command"
+  ansible.builtin.command: "firewall-cmd --set-default-zone={{ firewalld_default_zone }}"
+  register: result
+  changed_when: "'success' in result.stdout"
+  when: firewalld_change.changed
+
+- name: "Reload firewalld to apply changes"
+  ansible.builtin.service:
+    name: firewalld
+    state: reloaded
+  when: firewalld_change.changed
+
+- name: "Ensure custom SSH port is set"
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?Port [0-9]+'
+    line: "Port {{ hostvars[inventory_hostname]['ansible_port'] }}"
+    state: present
+  register: ssh_config_change
+
+- name: "Disable password authentication"
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?(PasswordAuthentication|PermitEmptyPasswords).*'
+    line: 'PasswordAuthentication no'
+    state: present
+  register: ssh_config_change
+
+- name: "Disable root login"
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?PermitRootLogin.*'
+    line: 'PermitRootLogin no'
+    state: present
+  register: ssh_config_change
+
+- name: "Restart sshd service"
+  ansible.builtin.systemd:
+    name: sshd
+    state: restarted
+  when: ssh_config_change.changed
+
