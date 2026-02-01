@@ -13,6 +13,13 @@
     - /etc/rancher/k3s
     - /var/lib/rancher/k3s
 
+- name: Build node labels and taint arguments
+  set_fact:
+    _k3s_node_labels: >-
+      {{ (['--node-label=node-role.kubernetes.io/master=true'] if k3s_node_type in ['master', 'mixed'] else [])
+       + (k3s_node_labels | map('regex_replace', '^', '--node-label=') | list) }}
+    _k3s_node_taint: "{{ '--node-taint=node-role.kubernetes.io/master:NoSchedule' if k3s_node_type == 'master' else '' }}"
+
 - name: Start Primary Master
   community.docker.docker_container:
     name: k3s-server
@@ -36,6 +43,8 @@
       --bind-address={{ k3s_node_ip }}
       --advertise-address={{ k3s_node_ip }}
       --tls-san={{ k3s_primary_master_ip }}
+      {{ _k3s_node_taint }}
+      {{ _k3s_node_labels | join(' ') }}
       {{ k3s_extra_args }}
   when: inventory_hostname == k3s_primary_master_name
 
@@ -66,7 +75,8 @@
       --server https://{{ k3s_primary_master_ip }}:6443
       --node-ip={{ k3s_node_ip }}
       --flannel-iface=wg-kube
-      {{ '--node-taint CriticalAddonsOnly=true:NoExecute' if k3s_node_type == 'master' else '' }}
+      {{ _k3s_node_taint }}
+      {{ _k3s_node_labels | join(' ') }}
       {{ k3s_extra_args }}
   when: 
     - inventory_hostname != k3s_primary_master_name
@@ -91,4 +101,5 @@
       --node-name={{ inventory_hostname }}
       --node-ip={{ k3s_node_ip }}
       --flannel-iface=wg-kube
+      {{ k3s_node_labels | map('regex_replace', '^', '--node-label=') | join(' ') }}
   when: k3s_node_type == 'worker'
