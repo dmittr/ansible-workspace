@@ -12,8 +12,8 @@ Base template to your ansible workplace.
 1. Create a project folder and clone this repo `git clone git@github.com:dmittr/ansible-workspace.git`
 2. Copy files to your project `cp -r ansible-workspace/{group_vars,ansible.cfg,inventory.yml,site.yml} .`
 3. Update external_roles `cd ansible-workspace && ansible-galaxy install -r requirements.yml -p ./external_roles`
-3. Populate `inventory.yml` in your project folder with your own data.
-4. Encrypt your vault `ansible-vault encrypt group_vars/all/vault.yml`
+4. Populate `inventory.yml` in your project folder with your own data.
+5. Encrypt your vault `ansible-vault encrypt group_vars/all/vault.yml`
 
 ## Init-user-ssh
 

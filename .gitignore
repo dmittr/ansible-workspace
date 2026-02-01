@@ -2,12 +2,7 @@
 *.log
 *.retry
 .*/.galaxy_install_info
-
 external_roles/*
-group_vars/*
-!group_vars/example/
-
-
 
 *.pem
 *.key
