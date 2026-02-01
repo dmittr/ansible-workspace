@@ -2,6 +2,7 @@ inventory.ini
 inventory.yml
 /*.yaml
 /*.yml
+!/example_inventory.yml
 !/req.yml
 !/site.yml
 

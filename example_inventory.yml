@@ -1,0 +1,38 @@
+all:
+  vars:
+    some_variable_name: "some_variable_value"
+    ansible_ssh_private_key_file: "~/.ssh/id_ed25519"
+
+  hosts:
+    server.example.com:
+      ansible_host: 192.168.1.2
+      ansible_user: karasik
+      ansible_port: 33322
+      firewalld_default_allowed_ports:
+        - { port: '80', proto: 'tcp' }
+        - { port: '443', proto: 'tcp' }
+    vps-somewhere:
+      ansible_host: 1.1.1.1
+      ansible_user: karasik
+      ansible_port: 33322
+      firewalld_default_allowed_ports:
+        - { port: '80', proto: 'tcp' }
+        - { port: '443', proto: 'tcp' }
+
+  children:
+    servers:
+      hosts:
+        server.example.com:
+        vps-somewhere:
+
+    baremetal:
+      hosts:
+        server.example.com:
+
+    vps:
+      hosts:
+        vps-somewhere:
+
+    webservers:
+      children:
+        servers:

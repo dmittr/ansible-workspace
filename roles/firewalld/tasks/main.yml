@@ -1,0 +1,58 @@
+---
+- name: "Opening allowed ports in {{ firewalld_default_zone }} zone"
+  ansible.builtin.firewalld:
+    zone: "{{ firewalld_default_zone }}"
+    port: "{{ item.port }}/{{ item.proto }}"
+    permanent: yes
+    state: enabled
+    immediate: yes
+  loop: "{{ firewalld_default_allowed_ports | default([]) }}"
+  when: 
+    - firewalld_default_allowed_ports is defined
+    - firewalld_default_allowed_ports | length > 0
+  register: firewalld_change
+
+- name: "Manage Firewalld Interfaces"
+  ansible.builtin.firewalld:
+    interface: "{{ item.interface }}"
+    zone: "{{ item.zone }}"
+    state: "{{ item.state | default('enabled') }}"
+    permanent: yes
+    immediate: yes
+  loop: "{{ firewalld_interfaces | default([]) }}"
+  when: 
+    - firewalld_interfaces is defined
+    - firewalld_interfaces | length > 0
+  register: firewalld_change
+
+- name: "Manage Firewalld Sources (Nets)"
+  ansible.builtin.firewalld:
+    source: "{{ item.source }}"
+    zone: "{{ item.zone }}"
+    state: "{{ item.state | default('enabled') }}"
+    permanent: yes
+    immediate: yes
+  loop: "{{ firewalld_sources | default([]) }}"
+  when: 
+    - firewalld_sources is defined
+    - firewalld_sources | length > 0
+  register: firewalld_change
+
+- name: "Manage Masquerade (NAT)"
+  ansible.builtin.firewalld:
+    zone: "{{ item.zone }}"
+    masquerade: "{{ 'yes' if (item.state | default('enabled') == 'enabled') else 'no' }}"
+    state: enabled 
+    permanent: yes
+    immediate: yes
+  loop: "{{ firewalld_masquerade | default([]) }}"
+  when: 
+    - firewalld_masquerade is defined
+    - firewalld_masquerade | length > 0
+  register: firewalld_change
+
+- name: "Reload firewalld to apply changes"
+  ansible.builtin.service:
+    name: firewalld
+    state: reloaded
+  when: firewalld_change.changed

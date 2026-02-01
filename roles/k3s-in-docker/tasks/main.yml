@@ -1,0 +1,94 @@
+---
+- name: Pull k3s docker image
+  community.docker.docker_image:
+    name: "rancher/k3s:{{ k3s_version }}"
+    source: pull
+
+- name: Create k3s config and data directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - /etc/rancher/k3s
+    - /var/lib/rancher/k3s
+
+- name: Start Primary Master
+  community.docker.docker_container:
+    name: k3s-server
+    image: "rancher/k3s:{{ k3s_version }}"
+    privileged: true
+    network_mode: host
+    restart_policy: always
+    volumes:
+      - /var/lib/rancher/k3s:/var/lib/rancher/k3s
+      - /lib/modules:/lib/modules:ro
+      - /run:/run
+    env:
+      K3S_TOKEN: "{{ k3s_token }}"
+      K3S_KUBECONFIG_MODE: "644"
+    command: >
+      server 
+      --cluster-init
+      --node-name={{ inventory_hostname }}
+      --node-ip={{ k3s_node_ip }}
+      --flannel-iface=wg-kube
+      --bind-address={{ k3s_node_ip }}
+      --advertise-address={{ k3s_node_ip }}
+      --tls-san={{ k3s_primary_master_ip }}
+      {{ k3s_extra_args }}
+  when: inventory_hostname == k3s_primary_master_name
+
+- name: Wait for Primary Master API to be ready
+  wait_for:
+    host: "{{ k3s_primary_master_ip }}"
+    port: 6443
+    delay: 5
+    timeout: 60
+  when: inventory_hostname == k3s_primary_master_name
+
+- name: Start Secondary Masters (HA)
+  community.docker.docker_container:
+    name: k3s-server
+    image: "rancher/k3s:{{ k3s_version }}"
+    privileged: true
+    network_mode: host
+    restart_policy: always
+    volumes:
+      - /var/lib/rancher/k3s:/var/lib/rancher/k3s
+      - /lib/modules:/lib/modules:ro
+      - /run:/run
+    env:
+      K3S_TOKEN: "{{ k3s_token }}"
+    command: >
+      server 
+      --node-name={{ inventory_hostname }}
+      --server https://{{ k3s_primary_master_ip }}:6443
+      --node-ip={{ k3s_node_ip }}
+      --flannel-iface=wg-kube
+      {{ '--node-taint CriticalAddonsOnly=true:NoExecute' if k3s_node_type == 'master' else '' }}
+      {{ k3s_extra_args }}
+  when: 
+    - inventory_hostname != k3s_primary_master_name
+    - k3s_node_type in ['master', 'mixed']
+
+- name: Start Worker Nodes
+  community.docker.docker_container:
+    name: k3s-agent
+    image: "rancher/k3s:{{ k3s_version }}"
+    privileged: true
+    network_mode: host
+    restart_policy: always
+    volumes:
+      - /var/lib/rancher/k3s:/var/lib/rancher/k3s
+      - /lib/modules:/lib/modules:ro
+      - /run:/run
+    env:
+      K3S_URL: "https://{{ k3s_primary_master_ip }}:6443"
+      K3S_TOKEN: "{{ k3s_token }}"
+    command: >
+      agent
+      --node-name={{ inventory_hostname }}
+      --node-ip={{ k3s_node_ip }}
+      --flannel-iface=wg-kube
+  when: k3s_node_type == 'worker'

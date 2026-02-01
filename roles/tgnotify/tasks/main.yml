@@ -76,6 +76,6 @@
   ansible.builtin.systemd:
     daemon_reload: yes
 
-- name: "Set default zone to drop via command"
+- name: "Send test message"
   ansible.builtin.command: /usr/local/bin/tgnotify "Ansible message"
   when: script_changed.changed

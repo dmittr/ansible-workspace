@@ -1,0 +1,5 @@
+---
+k3s_version: v1.29.1-k3s1
+k3s_token: "SECRET_CLUSTER_TOKEN_12345"
+k3s_image: "rancher/k3s:{{ k3s_version }}"
+k3s_extra_args: ""
