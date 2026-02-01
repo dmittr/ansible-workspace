@@ -1,7 +1,18 @@
 all:
   vars:
-    some_variable_name: "some_variable_value"
+    ansible_become_password: "{{ vault_ansible_become_password }}"
     ansible_ssh_private_key_file: "~/.ssh/id_ed25519"
+    tg_notify_chat_id: "{{ vault_tg_notify_chat_id }}"
+    tg_notify_bot_id: "{{ vault_tg_notify_bot_id }}"
+    firewalld_default_zone: "drop"
+    firewalld_interfaces:
+      - { interface: "docker0", zone: "trusted", state: "enabled" }
+      - { interface: "wg-kube", zone: "trusted", state: "enabled" }
+    wireguard: "{{ vault_wireguard | from_yaml }}"
+    k3s_token: "{{vault_k3s_token}}"
+    k3s_primary_master_ip: "192.168.99.1"
+    k3s_primary_master_name: server.example.com"
+
 
   hosts:
     server.example.com:

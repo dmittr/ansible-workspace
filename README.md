@@ -9,11 +9,11 @@ Base template to your ansible workplace.
 
 ## Quick start
 
-1. Create `inventory.ini` from `example_inventory.ini` and add your servers
-2. Copy `group_vars/example` to `group_vars/all` and provide needed values
-3. Encrypt your vault `ansible-vault encrypt group_vars/all/vault.yml`
-4. Edit `requirements.yml` with some essential roles you need and run `ansible-galaxy install -r requirements.yml -p ./external_roles`
-5. If you have fresh machine with root access via ssh by key auth 
+1. Create a project folder and clone this repo `git clone git@github.com:dmittr/ansible-workspace.git`
+2. Copy files to your project `cp -r ansible-workspace/{group_vars,ansible.cfg,inventory.yml,site.yml} .`
+3. Update external_roles `cd ansible-workspace && ansible-galaxy install -r requirements.yml -p ./external_roles`
+3. Populate `inventory.yml` in your project folder with your own data.
+4. Encrypt your vault `ansible-vault encrypt group_vars/all/vault.yml`
 
 ## Init-user-ssh
 

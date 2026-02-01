@@ -1,11 +1,3 @@
-inventory.ini
-inventory.yml
-/*.yaml
-/*.yml
-!/example_inventory.yml
-!/requirements.yml
-!/req.yml
-!/site.yml
 
 *.log
 *.retry
