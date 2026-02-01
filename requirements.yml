@@ -1,0 +1,10 @@
+roles:
+  - name: wireguard
+    src: https://github.com/dmittr/ansible-wireguard
+    scm: git
+    version: main
+
+  - name: k3s-cluster
+    src: https://github.com/dmittr/ansible-k3s-cluster
+    scm: git
+    version: main

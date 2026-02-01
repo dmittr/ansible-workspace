@@ -3,6 +3,7 @@ inventory.yml
 /*.yaml
 /*.yml
 !/example_inventory.yml
+!/requirements.yml
 !/req.yml
 !/site.yml
 
