@@ -3,13 +3,11 @@
   ansible.builtin.firewalld:
     zone: "{{ firewalld_default_zone }}"
     port: "{{ item.port }}/{{ item.proto }}"
+    state: "{{ item.state | default('enabled') }}"
     permanent: yes
-    state: enabled
     immediate: yes
-  loop: "{{ firewalld_default_allowed_ports | default([]) }}"
-  when: 
-    - firewalld_default_allowed_ports is defined
-    - firewalld_default_allowed_ports | length > 0
+  loop: "{{ (firewalld_ports | default([])) + (firewalld_host_ports | default([])) }}"
+  when: (firewalld_ports | default([])) + (firewalld_host_ports | default([])) | length > 0
   register: firewalld_change
 
 - name: "Manage Firewalld Interfaces"
@@ -42,7 +40,7 @@
   ansible.builtin.firewalld:
     zone: "{{ item.zone }}"
     masquerade: "{{ 'yes' if (item.state | default('enabled') == 'enabled') else 'no' }}"
-    state: enabled 
+    state: "{{ item.state | default('enabled') }}"
     permanent: yes
     immediate: yes
   loop: "{{ firewalld_masquerade | default([]) }}"
