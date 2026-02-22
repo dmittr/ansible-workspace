@@ -7,7 +7,7 @@
     permanent: yes
     immediate: yes
   loop: "{{ (firewalld_ports | default([])) + (firewalld_host_ports | default([])) }}"
-  when: (firewalld_ports | default([])) + (firewalld_host_ports | default([])) | length > 0
+  when: ((firewalld_ports | default([])) + (firewalld_host_ports | default([]))) | length > 0
   register: firewalld_change
 
 - name: "Manage Firewalld Interfaces"

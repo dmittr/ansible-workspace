@@ -1,4 +1,34 @@
 ---
+- name: k3s_wipe condition
+  block:
+    - name: Remove k3s containers
+      community.docker.docker_container:
+        name: "{{ item }}"
+        state: absent
+      loop:
+        - k3s-server
+        - k3s-agent
+
+    - name: Unmount k3s filesystems
+      shell: |
+        if mount | grep -q "/var/lib/rancher/k3s"; then
+          umount -l /var/lib/rancher/k3s/storage
+          umount -l $(mount | grep "/var/lib/rancher/k3s" | awk '{print $3}')
+        fi
+      failed_when: false
+      args:
+        executable: /bin/bash
+
+    - name: Delete k3s directories
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/rancher/k3s
+        - /var/lib/rancher/k3s
+  
+  when: k3s_wipe | default(false) | bool
+
 - name: Pull k3s docker image
   community.docker.docker_image:
     name: "rancher/k3s:{{ k3s_version }}"
@@ -36,10 +66,10 @@
       --cluster-init
       --node-name={{ inventory_hostname }}
       --node-ip={{ k3s_node_ip }}
-      --flannel-iface=wg-kube
+      --flannel-iface={{ k3s_flannel_interface }}
       --bind-address={{ k3s_node_ip }}
       --advertise-address={{ k3s_node_ip }}
-      --tls-san={{ k3s_primary_master_ip }}
+      --tls-san={{ k3s_primary_master_ip }},{{ k3s_san }}
       {{ _k3s_node_taint }}
       {{ k3s_extra_args }}
   when: inventory_hostname == k3s_primary_master_name
@@ -70,7 +100,7 @@
       --node-name={{ inventory_hostname }}
       --server https://{{ k3s_primary_master_ip }}:6443
       --node-ip={{ k3s_node_ip }}
-      --flannel-iface=wg-kube
+      --flannel-iface={{ k3s_flannel_interface }}
       {{ _k3s_node_taint }}
       {{ k3s_extra_args }}
   when: 
@@ -95,5 +125,5 @@
       agent
       --node-name={{ inventory_hostname }}
       --node-ip={{ k3s_node_ip }}
-      --flannel-iface=wg-kube
+      --flannel-iface={{ k3s_flannel_interface }}
   when: k3s_node_type == 'worker'
