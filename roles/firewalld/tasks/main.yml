@@ -1,4 +1,5 @@
 ---
+<<<<<<< Updated upstream
 - name: "Opening allowed ports in {{ firewalld_default_zone }} zone"
   ansible.builtin.firewalld:
     zone: "{{ firewalld_default_zone }}"
@@ -9,34 +10,74 @@
   loop: "{{ (firewalld_ports | default([])) + (firewalld_host_ports | default([])) }}"
   when: ((firewalld_ports | default([])) + (firewalld_host_ports | default([]))) | length > 0
   register: firewalld_change
+=======
+# 1. PRE-REQUISITES
+- name: "Firewalld | Ensure package is installed"
+  ansible.builtin.package:
+    name: firewalld
+    state: present
+>>>>>>> Stashed changes
 
-- name: "Manage Firewalld Interfaces"
+- name: "Firewalld | Ensure service is started and enabled"
+  ansible.builtin.service:
+    name: firewalld
+    state: started
+    enabled: yes
+
+# 2. INTERFACES (Binding hardware to zones)
+- name: "Firewalld | Interfaces to zone bind"
   ansible.builtin.firewalld:
     interface: "{{ item.interface }}"
-    zone: "{{ item.zone }}"
+    zone: "{{ item.zone | default(firewalld_default_zone) }}"
     state: "{{ item.state | default('enabled') }}"
     permanent: yes
-    immediate: yes
+    immediate: yes  
   loop: "{{ firewalld_interfaces | default([]) }}"
-  when: 
-    - firewalld_interfaces is defined
-    - firewalld_interfaces | length > 0
-  register: firewalld_change
+  loop_control:
+    label: "IF: {{ item.interface }} -> Zone: {{ item.zone | default(firewalld_default_zone) }}"
+  when: firewalld_interfaces is defined
 
-- name: "Manage Firewalld Sources (Nets)"
+# 3. SOURCES (Binding IP/Networks to zones)
+- name: "Firewalld | Networks to zone bind"
   ansible.builtin.firewalld:
     source: "{{ item.source }}"
-    zone: "{{ item.zone }}"
+    zone: "{{ item.zone | default(firewalld_default_zone) }}"
     state: "{{ item.state | default('enabled') }}"
     permanent: yes
     immediate: yes
   loop: "{{ firewalld_sources | default([]) }}"
-  when: 
-    - firewalld_sources is defined
-    - firewalld_sources | length > 0
-  register: firewalld_change
+  loop_control:
+    label: "Net: {{ item.source }} -> Zone: {{ item.zone | default(firewalld_default_zone) }}"
+  when: firewalld_sources is defined
 
-- name: "Manage Masquerade (NAT)"
+# 4. SERVICES (Standard protocols by name)
+- name: "Firewalld | Services"
+  ansible.builtin.firewalld:
+    service: "{{ item.service }}"
+    zone: "{{ item.zone | default(firewalld_default_zone) }}"
+    state: "{{ item.state | default('enabled') }}"
+    permanent: yes
+    immediate: yes
+  loop: "{{ firewalld_services | default([]) }}"
+  loop_control:
+    label: "Service: {{ item.service }} -> Zone: {{ item.zone | default(firewalld_default_zone) }}"
+  when: firewalld_services is defined
+
+# 5. PORTS (Manual port definitions)
+- name: "Firewalld | Ports"
+  ansible.builtin.firewalld:
+    zone: "{{ item.zone | default(firewalld_default_zone) }}"
+    port: "{{ item.port }}/{{ item.proto | default('tcp') }}"
+    state: "{{ item.state | default('enabled') }}"
+    permanent: yes
+    immediate: yes
+  loop: "{{ (firewalld_ports | default([])) + (firewalld_host_ports | default([])) }}"
+  loop_control:
+    label: "Port: {{ item.port }}/{{ item.proto | default('tcp') }} -> Zone: {{ item.zone | default(firewalld_default_zone) }}"
+  when: ((firewalld_ports | default([])) + (firewalld_host_ports | default([]))) | length > 0
+
+# 6. MASQUERADE (NAT)
+- name: "Firewalld | Masquerade"
   ansible.builtin.firewalld:
     zone: "{{ item.zone }}"
     masquerade: "{{ 'yes' if (item.state | default('enabled') == 'enabled') else 'no' }}"
@@ -44,13 +85,41 @@
     permanent: yes
     immediate: yes
   loop: "{{ firewalld_masquerade | default([]) }}"
-  when: 
-    - firewalld_masquerade is defined
-    - firewalld_masquerade | length > 0
-  register: firewalld_change
+  loop_control:
+    label: "NAT on Zone: {{ item.zone }}"
+  when: firewalld_masquerade is defined
 
-- name: "Reload firewalld to apply changes"
-  ansible.builtin.service:
-    name: firewalld
-    state: reloaded
-  when: firewalld_change.changed
+# 7. PORT FORWARDING
+- name: "Firewalld | Port Forwarding"
+  ansible.builtin.firewalld:
+    zone: "{{ item.zone | default(firewalld_default_zone) }}"
+    port_forward:
+      - port: "{{ item.external_port }}"
+        proto: "{{ item.proto | default('tcp') }}"
+        toport: "{{ item.internal_port }}"
+        toaddr: "{{ item.internal_ip | default(omit) }}"
+    state: "{{ item.state | default('enabled') }}"
+    permanent: yes
+    immediate: yes
+  loop: "{{ firewalld_forwarding | default([]) }}"
+  loop_control:
+    label: "Forward: {{ item.external_port }} -> {{ item.internal_ip | default('localhost') }}:{{ item.internal_port }}"
+  when: firewalld_forwarding is defined
+
+# 8. RICH RULES (Granular control)
+- name: "Firewalld | Rich Rules"
+  ansible.builtin.firewalld:
+    zone: "{{ item.zone | default(firewalld_default_zone) }}"
+    rich_rule: >
+      rule family="ipv4"
+      {% if item.source is defined %}source address="{{ item.source }}"{% endif %}
+      {% if item.port is defined %}port port="{{ item.port }}" protocol="{{ item.proto | default('tcp') }}"{% endif %}
+      {% if item.service is defined %}service name="{{ item.service }}"{% endif %}
+      {{ item.action | default('accept') }}
+    state: "{{ item.state | default('enabled') }}"
+    permanent: yes
+    immediate: yes
+  loop: "{{ firewalld_rich_rules | default([]) }}"
+  loop_control:
+    label: "Rich Rule for: {{ item.source | default('ANY') }}"
+  when: firewalld_rich_rules is defined

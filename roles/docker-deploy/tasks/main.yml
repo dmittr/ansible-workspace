@@ -1,4 +1,5 @@
 ---
+<<<<<<< Updated upstream
 - name: Check if compose templates and data dirs exist locally
   delegate_to: localhost
   become: false
@@ -50,3 +51,96 @@
   when:
     - item.item.1 == '.data'
     - item.item.0.state | default('present') == 'absent'
+=======
+# 1. PREPARE DIR
+- name: "Docker | Create service root directory"
+  ansible.builtin.file:
+    path: "{{ docker_base_path }}/{{ item.name }}"
+    state: directory
+    mode: '0755'
+  loop: "{{ docker_services }}"
+  loop_control:
+    label: "Dir: {{ item.name }}"
+
+# 2. DATA SYNC
+- name: "Docker | Sync service data files"
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/docker-compose/data/{{ item.name }}/"
+    dest: "{{ docker_base_path }}/{{ item.name }}/data/"
+    mode: '0644'
+    force: yes 
+  loop: "{{ docker_services }}"
+  loop_control:
+    label: "Data sync for: {{ item.name }}"
+  when: item.has_data | default(false)
+
+# 3. RENDERING DOCKER-COMPOSE.YML
+- name: "Docker | Generate docker-compose.yml"
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/docker-compose/{{ item.name }}.j2"
+    dest: "{{ docker_base_path }}/{{ item.name }}/docker-compose.yml"
+    mode: '0640'
+  loop: "{{ docker_services }}"
+  loop_control:
+    label: "Template: {{ item.name }}"
+  register: compose_files
+
+# 4. PRE-START COMMAND EXEC
+- name: "Docker | Run pre-start commands"
+  ansible.builtin.shell:
+    cmd: "{{ item.pre_start_command }}"
+  become: yes
+  loop: "{{ docker_services }}"
+  loop_control:
+    label: "Pre-start: {{ item.name }}"
+  when: 
+    - item.pre_start_command is defined
+    - item.state | default('present') == 'present'
+  changed_when: true 
+
+# 5. RUN CONTAINERS
+- name: "Docker | Deploy services with Docker Compose"
+  community.docker.docker_compose_v2:
+    project_src: "{{ docker_base_path }}/{{ item.name }}"
+    state: "{{ 'present' if item.state | default('present') == 'present' else 'absent' }}"
+    pull: always
+    recreate: auto
+  loop: "{{ docker_services }}"
+  loop_control:
+    label: "Compose UP: {{ item.name }}"
+
+# 6. HEALTHCHECK DOCKER NATIVE
+- name: "Docker | Wait for Container Health (Docker status)"
+  community.docker.docker_container_info:
+    name: "{{ item.name }}"
+  register: container_info
+  until: >
+    container_info.container['State']['Health']['Status'] == 'healthy' or 
+    container_info.container['State']['Status'] == 'running'
+  retries: "{{ item.healthcheck.retries | default(12) }}"
+  delay: "{{ item.healthcheck.delay | default(5) }}"
+  loop: "{{ docker_services }}"
+  loop_control:
+    label: "Waiting for Docker Health: {{ item.name }} (Type: {{ (item.healthcheck | default({})).type | default('N/A') }})"
+  when: 
+    - item.state | default('present') == 'present'
+    - item.healthcheck is defined
+    - item.healthcheck.type == 'docker'
+
+# 7. HEALTHCHECK HTTP/Web
+- name: "Docker | Wait for HTTP Service Readiness"
+  ansible.builtin.uri:
+    url: "http://localhost:{{ item.healthcheck.port }}{{ item.healthcheck.path | default('/') }}"
+    status_code: "{{ item.healthcheck.status_code | default(200) }}"
+  register: http_result
+  until: http_result.status == item.healthcheck.status_code | default(200)
+  retries: "{{ item.healthcheck.retries | default(12) }}"
+  delay: "{{ item.healthcheck.delay | default(5) }}"
+  loop: "{{ docker_services }}"
+  loop_control:
+    label: "Healthcheck for: {{ item.name }} [{{ (item.healthcheck | default({})).type | default('none') }}]"
+  when: 
+    - item.state | default('present') == 'present'
+    - item.healthcheck is defined
+    - item.healthcheck.type == 'http'
+>>>>>>> Stashed changes
