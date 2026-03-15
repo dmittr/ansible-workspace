@@ -1,0 +1,69 @@
+---
+- name: "Installer | Combine configs"
+  set_fact:
+    combined_config: "{{ install_config | default([]) + install_host_config | default([]) }}"
+
+- name: "Installer | Add repo"
+  become: true
+  get_url:
+    url: "{{ item.repo }}"
+    dest: "/etc/yum.repos.d/{{ item.name }}.repo"
+    mode: '0644'
+  loop: "{{ combined_config }}"
+  when: item.repo is defined and item.repo | length > 0
+
+- name: "Installer | Install packages"
+  become: true
+  dnf:
+    name: "{{ item.pkg }}"
+    state: present
+    update_cache: yes
+  loop: "{{ combined_config }}"
+  when: item.pkg is defined
+
+- name: "Installer | Pre-run Stage"
+  include_tasks: run_commands.yml
+  loop: "{{ combined_config }}"
+  loop_control:
+    loop_var: service_item
+  vars:
+    current_stage: "pre-run"
+
+- name: "Installer | Create Groups"
+  become: true
+  group:
+    name: "{{ item }}"
+    state: present
+  loop: "{{ install_config | map(attribute='groups', default=[]) | flatten | unique }}"
+
+- name: "Installer | Create or Update Users"
+  become: true
+  user:
+    name: "{{ item.name }}"
+    group: "{{ item.group | default(omit) }}"
+    groups: "{{ item.additional_groups | default(omit) }}"
+    append: "{{ item.append | default(true) }}"
+    shell: "{{ item.shell | default(omit) }}"
+    system: "{{ item.system | default(true) }}"
+    state: present
+  loop: "{{ install_config | map(attribute='users', default=[]) | flatten | unique(attribute='name') }}"
+
+- name: "Installer | Services"
+  become: true
+  systemd:
+    name: "{{ service_name }}"
+    state: started
+    enabled: yes
+  loop: "{{ combined_config | subelements('service', skip_missing=True) }}"
+  loop_control:
+    loop_var: service_item
+  vars:
+    service_name: "{{ service_item.1 }}"
+
+- name: "Installer | Post-run Stage"
+  include_tasks: run_commands.yml
+  loop: "{{ combined_config }}"
+  loop_control:
+    loop_var: service_item
+  vars:
+    current_stage: "post-run"

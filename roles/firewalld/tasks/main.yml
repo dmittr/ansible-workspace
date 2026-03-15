@@ -1,22 +1,9 @@
 ---
-<<<<<<< Updated upstream
-- name: "Opening allowed ports in {{ firewalld_default_zone }} zone"
-  ansible.builtin.firewalld:
-    zone: "{{ firewalld_default_zone }}"
-    port: "{{ item.port }}/{{ item.proto }}"
-    state: "{{ item.state | default('enabled') }}"
-    permanent: yes
-    immediate: yes
-  loop: "{{ (firewalld_ports | default([])) + (firewalld_host_ports | default([])) }}"
-  when: ((firewalld_ports | default([])) + (firewalld_host_ports | default([]))) | length > 0
-  register: firewalld_change
-=======
 # 1. PRE-REQUISITES
 - name: "Firewalld | Ensure package is installed"
   ansible.builtin.package:
     name: firewalld
     state: present
->>>>>>> Stashed changes
 
 - name: "Firewalld | Ensure service is started and enabled"
   ansible.builtin.service:

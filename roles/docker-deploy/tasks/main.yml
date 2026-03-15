@@ -1,57 +1,4 @@
 ---
-<<<<<<< Updated upstream
-- name: Check if compose templates and data dirs exist locally
-  delegate_to: localhost
-  become: false
-  stat:
-    path: "{{ playbook_dir }}/templates/{{ item.0.name }}{{ item.1 }}"
-  register: file_checks
-  loop: "{{ docker_compose | default([]) | product(['.yml.j2', '.data']) | list }}"
-  loop_control:
-    label: "Checking {{ item.0.name }}{{ item.1 }}"
-
-- name: Create base docker directory
-  file:
-    path: "/opt/docker"
-    state: directory
-    mode: '0755'
-
-- name: Sync data directories to host
-  copy:
-    src: "{{ item.stat.path }}/"
-    dest: "/opt/docker/{{ item.item.0.name }}/"
-  loop: "{{ file_checks.results | default([]) }}"
-  loop_control:
-    label: "Syncing {{ item.item.0.name }} data"
-  when: 
-    - item.item.1 == '.data'
-    - item.stat.exists
-    - item.item.0.state | default('present') == 'present'
-
-- name: Manage Docker Compose applications
-  community.docker.docker_compose_v2:
-    project_name: "{{ item.item.0.name }}"
-    definition: "{{ lookup('template', item.stat.path) | from_yaml if (item.item.1 == '.yml.j2' and item.stat.exists) else {} }}"
-    state: "{{ item.item.0.state | default('present') }}"
-    remove_orphans: yes
-  loop: "{{ file_checks.results | default([]) }}"
-  loop_control:
-    label: "Compose: {{ item.item.0.name }} ({{ item.item.0.state | default('present') }})"
-  when: 
-    - item.item.1 == '.yml.j2'
-    - (item.stat.exists) or (item.item.0.state | default('present') == 'absent')
-
-- name: Remove data directories on cleanup
-  file:
-    path: "/opt/docker/{{ item.item.0.name }}/"
-    state: absent
-  loop: "{{ file_checks.results | default([]) }}"
-  loop_control:
-    label: "Cleaning up {{ item.item.0.name }} data"
-  when:
-    - item.item.1 == '.data'
-    - item.item.0.state | default('present') == 'absent'
-=======
 # 1. PREPARE DIR
 - name: "Docker | Create service root directory"
   ansible.builtin.file:
@@ -73,6 +20,7 @@
   loop_control:
     label: "Data sync for: {{ item.name }}"
   when: item.has_data | default(false)
+  register: container_change
 
 # 3. RENDERING DOCKER-COMPOSE.YML
 - name: "Docker | Generate docker-compose.yml"
@@ -84,6 +32,7 @@
   loop_control:
     label: "Template: {{ item.name }}"
   register: compose_files
+  register: container_change
 
 # 4. PRE-START COMMAND EXEC
 - name: "Docker | Run pre-start commands"
@@ -97,6 +46,14 @@
     - item.pre_start_command is defined
     - item.state | default('present') == 'present'
   changed_when: true 
+
+# 4.1 RESTART CHANGED
+- name: "Docker | Restart changed services"
+  community.docker.docker_compose_v2:
+    project_src: "{{ docker_base_path }}/{{ item }}"
+    state: restarted
+  loop: "{{ container_change.results | selectattr('changed', 'equalto', true) | map(attribute='item.name') | list }}"
+  when: container_change.changed
 
 # 5. RUN CONTAINERS
 - name: "Docker | Deploy services with Docker Compose"
@@ -143,4 +100,3 @@
     - item.state | default('present') == 'present'
     - item.healthcheck is defined
     - item.healthcheck.type == 'http'
->>>>>>> Stashed changes
