@@ -5,6 +5,12 @@ all:
     override_path: "{{ playbook_dir }}/override"
     tg_notify_chat_id: "{{ vault_tg_notify_chat_id }}"
     tg_notify_bot_id: "{{ vault_tg_notify_bot_id }}"
+    install_config:
+      - name: "tgnotify"
+        check_file: "/usr/local/bin/tgnotify"
+        service:
+          - startup-tg-notify
+          
     firewalld_default_zone: "drop"
     firewalld_interfaces:
       - { interface: "docker0", zone: "trusted", state: "enabled" }
