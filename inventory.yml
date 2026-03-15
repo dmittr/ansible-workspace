@@ -2,6 +2,7 @@ all:
   vars:
     ansible_become_password: "{{ vault_ansible_become_password }}"
     ansible_ssh_private_key_file: "~/.ssh/id_ed25519"
+    override_path: "{{ playbook_dir }}/override"
     tg_notify_chat_id: "{{ vault_tg_notify_chat_id }}"
     tg_notify_bot_id: "{{ vault_tg_notify_bot_id }}"
     firewalld_default_zone: "drop"

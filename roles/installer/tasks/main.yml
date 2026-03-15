@@ -3,7 +3,25 @@
   set_fact:
     combined_config: "{{ install_config | default([]) + install_host_config | default([]) }}"
 
-- name: "Installer | Add repo"
+- name: "Installer | Check if check_file exists for each service"
+  become: true
+  stat:
+    path: "{{ item.check_file }}"
+  loop: "{{ combined_config }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: item.check_file is defined and item.check_file | length > 0
+  register: check_file_stat
+
+- name: "Installer | Calculate services needing installation"
+  set_fact:
+    services_needs_install: "{{ services_needs_install | default([]) + [item.item.name] }}"
+  loop: "{{ check_file_stat.results | default([]) }}"
+  when:
+    - item.item.check_file is defined
+    - not item.stat.exists | default(false)
+
+- name: "Installer | Add repos"
   become: true
   get_url:
     url: "{{ item.repo }}"
@@ -11,59 +29,86 @@
     mode: '0644'
   loop: "{{ combined_config }}"
   when: item.repo is defined and item.repo | length > 0
+  register: repo_result
 
 - name: "Installer | Install packages"
   become: true
   dnf:
     name: "{{ item.pkg }}"
     state: present
-    update_cache: yes
   loop: "{{ combined_config }}"
-  when: item.pkg is defined
+  when: item.pkg is defined and item.pkg | length > 0
+  register: pkg_result
 
-- name: "Installer | Pre-run Stage"
-  include_tasks: run_commands.yml
-  loop: "{{ combined_config }}"
-  loop_control:
-    loop_var: service_item
-  vars:
-    current_stage: "pre-run"
+- name: "Installer | Calculate initial installer_change"
+  set_fact:
+    installer_change: "{{ repo_result is changed or pkg_result is changed or (services_needs_install | default([])) | length > 0 }}"
 
-- name: "Installer | Create Groups"
-  become: true
-  group:
-    name: "{{ item }}"
-    state: present
-  loop: "{{ install_config | map(attribute='groups', default=[]) | flatten | unique }}"
-
-- name: "Installer | Create or Update Users"
-  become: true
-  user:
-    name: "{{ item.name }}"
-    group: "{{ item.group | default(omit) }}"
-    groups: "{{ item.additional_groups | default(omit) }}"
-    append: "{{ item.append | default(true) }}"
-    shell: "{{ item.shell | default(omit) }}"
-    system: "{{ item.system | default(true) }}"
-    state: present
-  loop: "{{ install_config | map(attribute='users', default=[]) | flatten | unique(attribute='name') }}"
-
-- name: "Installer | Services"
+- name: "Installer | Start and enable services (without check_file or existing check_file)"
   become: true
   systemd:
-    name: "{{ service_name }}"
+    name: "{{ service_item.1 }}"
     state: started
     enabled: yes
   loop: "{{ combined_config | subelements('service', skip_missing=True) }}"
   loop_control:
     loop_var: service_item
-  vars:
-    service_name: "{{ service_item.1 }}"
+  when:
+    - service_item.0.check_file is not defined or service_item.0.check_file | length == 0 or service_item.0.name not in (services_needs_install | default([]))
+  register: service_result
 
-- name: "Installer | Post-run Stage"
-  include_tasks: run_commands.yml
+- name: "Installer | Update installer_change from services"
+  set_fact:
+    installer_change: "{{ installer_change or (service_result is changed | default(false)) }}"
+
+- name: "Installer | Ensure post-run scripts directory exists"
+  become: true
+  file:
+    path: "/opt/ansible-workspace-installer"
+    state: directory
+    mode: '0750'
+
+- name: "Installer | Process post-run templates"
+  block:
+    - name: "Installer | Find post-run template"
+      set_fact:
+        post_run_template: "{{ lookup('first_found', search_files, errors='ignore') | default('') }}"
+      vars:
+        search_files:
+          - "{{ override_path | default(playbook_dir + '/override') }}/{{ ansible_role_name }}/templates/{{ item.name }}_post_run.sh.j2"
+          - "{{ role_path }}/templates/{{ item.name }}_post_run.sh.j2"
+      register: template_lookup
+      ignore_errors: true
+
+    - name: "Installer | Deploy post-run script"
+      become: true
+      template:
+        src: "{{ post_run_template }}"
+        dest: "/opt/ansible-workspace-installer/{{ item.name }}_post_run.sh"
+        mode: '0750'
+      when: post_run_template | length > 0
+      register: script_deployed
+
+    - name: "Installer | Execute post-run script"
+      become: true
+      shell: "/opt/ansible-workspace-installer/{{ item.name }}_post_run.sh"
+      when:
+        - post_run_template | length > 0
+        - installer_change | bool or (item.name in (services_needs_install | default([])))
   loop: "{{ combined_config }}"
   loop_control:
+    label: "{{ item.name }}"
+
+- name: "Installer | Start services that were created by post-run"
+  become: true
+  systemd:
+    name: "{{ service_item.1 }}"
+    state: started
+    enabled: yes
+  loop: "{{ combined_config | subelements('service', skip_missing=True) }}"
+  loop_control:
     loop_var: service_item
-  vars:
-    current_stage: "post-run"
+  when:
+    - service_item.0.name in (services_needs_install | default([]))
+    - service_item.0.check_file is defined
+    - service_item.0.check_file | length > 0
