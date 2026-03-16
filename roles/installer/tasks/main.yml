@@ -4,14 +4,18 @@
 # =============================================================================
 # This role handles two types of installations:
 # 1. STANDARD: Repository-based packages (dnf)
-# 2. CUSTOM: Binary/script installations with post-run hooks
+# 2. CUSTOM: Binary/script installations with installer scripts
 # =============================================================================
 
 # 1. ROUTING
 - name: "Installer | Standard packages installation"
   include_tasks: standard.yml
-  when: install_packages is defined and install_packages | length > 0
+  when: 
+    - (install_packages_global is defined and install_packages_global | length > 0) or 
+      (install_packages_host is defined and install_packages_host | length > 0)
 
-- name: "Installer | Custom installation with post-run"
+- name: "Installer | Custom installation with installer scripts"
   include_tasks: custom.yml
-  when: install_custom is defined and install_custom | length > 0
+  when: 
+    - (install_custom_global is defined and install_custom_global | length > 0) or 
+      (install_custom_host is defined and install_custom_host | length > 0)
