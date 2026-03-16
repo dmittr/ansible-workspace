@@ -1,4 +1,35 @@
 ---
+# =============================================================================
+# DOCKER-COMPOSE ROLE - Container orchestration deployment
+# =============================================================================
+# Deploys Docker Compose applications with support for template overrides
+# =============================================================================
+
+# 0. FIND RESOURCES (Locate templates and data files with override support)
+- name: "Docker | Find docker-compose templates"
+  set_fact:
+    compose_template_map: "{{ compose_template_map | default({}) | combine({item.name: lookup('first_found', search_files, errors='ignore') | default('') }) }}"
+  vars:
+    search_files:
+      - "{{ override_path | default(playbook_dir + '/override') }}/{{ ansible_role_name }}/templates/{{ item.name }}.j2"
+      - "{{ playbook_dir }}/{{ ansible_role_name }}/templates/{{ item.name }}.j2"
+  loop: "{{ docker_services }}"
+  loop_control:
+    label: "Template: {{ item.name }}"
+  ignore_errors: true
+
+- name: "Docker | Find data files directories"
+  set_fact:
+    compose_data_map: "{{ compose_data_map | default({}) | combine({item.name: data_path}) }}"
+  vars:
+    override_data_path: "{{ override_path | default(playbook_dir + '/override') }}/{{ ansible_role_name }}/files/{{ item.name }}"
+    default_data_path: "{{ playbook_dir }}/{{ ansible_role_name }}/files/{{ item.name }}"
+    data_path: "{{ override_data_path if lookup('fileglob', override_data_path + '/*', errors='ignore') | length > 0 else default_data_path }}"
+  loop: "{{ docker_services }}"
+  loop_control:
+    label: "Data dir: {{ item.name }}"
+  ignore_errors: true
+
 # 1. PREPARE DIR
 - name: "Docker | Create service root directory"
   ansible.builtin.file:
@@ -12,27 +43,34 @@
 # 2. DATA SYNC
 - name: "Docker | Sync service data files"
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/docker-compose/data/{{ item.name }}/"
+    src: "{{ compose_data_map[item.name] }}/"
     dest: "{{ docker_base_path }}/{{ item.name }}/data/"
     mode: '0644'
     force: yes 
   loop: "{{ docker_services }}"
   loop_control:
     label: "Data sync for: {{ item.name }}"
-  when: item.has_data | default(false)
+  when: 
+    - item.has_data | default(false)
+    - compose_data_map is defined
+    - compose_data_map[item.name] is defined
+    - compose_data_map[item.name] | length > 0
   register: container_change
 
 # 3. RENDERING DOCKER-COMPOSE.YML
 - name: "Docker | Generate docker-compose.yml"
   ansible.builtin.template:
-    src: "{{ playbook_dir }}/docker-compose/{{ item.name }}.j2"
+    src: "{{ compose_template_map[item.name] }}"
     dest: "{{ docker_base_path }}/{{ item.name }}/docker-compose.yml"
     mode: '0640'
   loop: "{{ docker_services }}"
   loop_control:
     label: "Template: {{ item.name }}"
+  when:
+    - compose_template_map is defined
+    - compose_template_map[item.name] is defined
+    - compose_template_map[item.name] | length > 0
   register: compose_files
-  register: container_change
 
 # 4. PRE-START COMMAND EXEC
 - name: "Docker | Run pre-start commands"
