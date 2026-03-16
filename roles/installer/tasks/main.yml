@@ -1,114 +1,17 @@
 ---
-- name: "Installer | Combine configs"
-  set_fact:
-    combined_config: "{{ install_config | default([]) + install_host_config | default([]) }}"
+# =============================================================================
+# INSTALLER ROLE - Universal package and custom software installer
+# =============================================================================
+# This role handles two types of installations:
+# 1. STANDARD: Repository-based packages (dnf)
+# 2. CUSTOM: Binary/script installations with post-run hooks
+# =============================================================================
 
-- name: "Installer | Check if check_file exists for each service"
-  become: true
-  stat:
-    path: "{{ item.check_file }}"
-  loop: "{{ combined_config }}"
-  loop_control:
-    label: "{{ item.name }}"
-  when: item.check_file is defined and item.check_file | length > 0
-  register: check_file_stat
+# 1. ROUTING
+- name: "Installer | Standard packages installation"
+  include_tasks: standard.yml
+  when: install_packages is defined and install_packages | length > 0
 
-- name: "Installer | Calculate services needing installation"
-  set_fact:
-    services_needs_install: "{{ services_needs_install | default([]) + [item.item.name] }}"
-  loop: "{{ check_file_stat.results | default([]) }}"
-  when:
-    - item.item.check_file is defined
-    - not item.stat.exists | default(false)
-
-- name: "Installer | Add repos"
-  become: true
-  get_url:
-    url: "{{ item.repo }}"
-    dest: "/etc/yum.repos.d/{{ item.name }}.repo"
-    mode: '0644'
-  loop: "{{ combined_config }}"
-  when: item.repo is defined and item.repo | length > 0
-  register: repo_result
-
-- name: "Installer | Install packages"
-  become: true
-  dnf:
-    name: "{{ item.pkg }}"
-    state: present
-  loop: "{{ combined_config }}"
-  when: item.pkg is defined and item.pkg | length > 0
-  register: pkg_result
-
-- name: "Installer | Calculate initial installer_change"
-  set_fact:
-    installer_change: "{{ repo_result is changed or pkg_result is changed or (services_needs_install | default([])) | length > 0 }}"
-
-- name: "Installer | Start and enable services (without check_file or existing check_file)"
-  become: true
-  systemd:
-    name: "{{ service_item.1 }}"
-    state: started
-    enabled: yes
-  loop: "{{ combined_config | subelements('service', skip_missing=True) }}"
-  loop_control:
-    loop_var: service_item
-  when:
-    - service_item.0.check_file is not defined or service_item.0.check_file | length == 0 or service_item.0.name not in (services_needs_install | default([]))
-  register: service_result
-
-- name: "Installer | Update installer_change from services"
-  set_fact:
-    installer_change: "{{ installer_change or (service_result is changed | default(false)) }}"
-
-- name: "Installer | Ensure post-run scripts directory exists"
-  become: true
-  file:
-    path: "/opt/ansible-workspace-installer"
-    state: directory
-    mode: '0750'
-
-- name: "Installer | Process post-run templates"
-  block:
-    - name: "Installer | Find post-run template"
-      set_fact:
-        post_run_template: "{{ lookup('first_found', search_files, errors='ignore') | default('') }}"
-      vars:
-        search_files:
-          - "{{ override_path | default(playbook_dir + '/override') }}/{{ ansible_role_name }}/templates/{{ item.name }}_post_run.sh.j2"
-          - "{{ role_path }}/templates/{{ item.name }}_post_run.sh.j2"
-      register: template_lookup
-      ignore_errors: true
-
-    - name: "Installer | Deploy post-run script"
-      become: true
-      template:
-        src: "{{ post_run_template }}"
-        dest: "/opt/ansible-workspace-installer/{{ item.name }}_post_run.sh"
-        mode: '0750'
-      when: post_run_template | length > 0
-      register: script_deployed
-
-    - name: "Installer | Execute post-run script"
-      become: true
-      shell: "/opt/ansible-workspace-installer/{{ item.name }}_post_run.sh"
-      when:
-        - post_run_template | length > 0
-        - installer_change | bool or (item.name in (services_needs_install | default([])))
-  loop: "{{ combined_config }}"
-  loop_control:
-    label: "{{ item.name }}"
-
-- name: "Installer | Start services that were created by post-run"
-  become: true
-  systemd:
-    name: "{{ service_item.1 }}"
-    state: started
-    enabled: yes
-  loop: "{{ combined_config | subelements('service', skip_missing=True) }}"
-  loop_control:
-    loop_var: service_item
-  when:
-    - service_item.0.name in (services_needs_install | default([]))
-    - service_item.0.check_file is defined
-    - service_item.0.check_file | length > 0
+- name: "Installer | Custom installation with post-run"
+  include_tasks: custom.yml
+  when: install_custom is defined and install_custom | length > 0

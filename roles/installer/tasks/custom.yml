@@ -1,0 +1,79 @@
+---
+# =============================================================================
+# INSTALLER CUSTOM - Binary/script installations with installer scripts
+# =============================================================================
+# Handles custom software installations that require manual setup:
+# - Downloading binaries from GitHub/releases
+# - Creating systemd units manually
+# - Running custom installation scripts
+# Uses check_file as idempotency marker
+# =============================================================================
+
+# 1. CHECK IDEMPOTENCY (Verify if already installed)
+- name: "Installer Custom | Check if already installed"
+  become: true
+  stat:
+    path: "{{ item.check_file }}"
+  loop: "{{ install_custom }}"
+  loop_control:
+    label: "Check: {{ item.name }} -> {{ item.check_file }}"
+  register: check_file_stat
+
+# 2. CALCULATE INSTALL LIST (Filter services needing installation)
+- name: "Installer Custom | Calculate services needing installation"
+  set_fact:
+    custom_needs_install: "{{ custom_needs_install | default([]) + [item.item.name] }}"
+  loop: "{{ check_file_stat.results }}"
+  when: not item.stat.exists
+
+# 3. FIND TEMPLATES (Locate installer scripts)
+- name: "Installer Custom | Find installer templates"
+  set_fact:
+    custom_template_map: "{{ custom_template_map | default({}) | combine({item.name: lookup('first_found', search_files, errors='ignore') | default('') }) }}"
+  vars:
+    search_files:
+      - "{{ override_path | default(playbook_dir + '/override') }}/{{ ansible_role_name }}/templates/{{ item.name }}_installer.sh.j2"
+      - "{{ role_path }}/templates/{{ item.name }}_installer.sh.j2"
+  loop: "{{ install_custom }}"
+  loop_control:
+    label: "Template: {{ item.name }}"
+  when: item.name in (custom_needs_install | default([]))
+  ignore_errors: true
+
+# 4. PREPARE DIRECTORY (Ensure installer scripts directory exists)
+- name: "Installer Custom | Ensure installer scripts directory exists"
+  become: true
+  file:
+    path: "/opt/ansible-workspace-installer"
+    state: directory
+    mode: '0750'
+
+# 5. DEPLOY SCRIPTS (Generate installer scripts from templates)
+- name: "Installer Custom | Deploy installer scripts"
+  become: true
+  template:
+    src: "{{ custom_template_map[item.name] }}"
+    dest: "/opt/ansible-workspace-installer/{{ item.name }}_installer.sh"
+    mode: '0750'
+  loop: "{{ install_custom }}"
+  loop_control:
+    label: "Deploy: {{ item.name }}"
+  when:
+    - item.name in (custom_needs_install | default([]))
+    - custom_template_map is defined
+    - custom_template_map[item.name] is defined
+    - custom_template_map[item.name] | length > 0
+  register: script_deployed
+
+# 6. EXECUTE SCRIPTS (Run installer scripts)
+- name: "Installer Custom | Execute installer scripts"
+  become: true
+  shell: "/opt/ansible-workspace-installer/{{ item.name }}_installer.sh"
+  loop: "{{ install_custom }}"
+  loop_control:
+    label: "Execute: {{ item.name }}"
+  when:
+    - item.name in (custom_needs_install | default([]))
+    - custom_template_map is defined
+    - custom_template_map[item.name] is defined
+    - custom_template_map[item.name] | length > 0

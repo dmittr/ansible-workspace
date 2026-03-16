@@ -1,6 +1,16 @@
-
 ---
-- name: "Add user {{ hostvars[inventory_hostname]['ansible_user'] }}"
+# =============================================================================
+# INIT-USER-SSH ROLE - Initial server setup and hardening
+# =============================================================================
+# This role performs initial server configuration:
+# - Creates admin user with SSH access
+# - Configures SSH security (custom port, no password auth, no root)
+# - Sets up firewalld for SSH access
+# - Copies root's SSH keys to new user
+# =============================================================================
+
+# 1. USER CREATION
+- name: "Init-User-SSH | Add user {{ hostvars[inventory_hostname]['ansible_user'] }}"
   become: yes
   ansible.builtin.user:
     name: "{{ hostvars[inventory_hostname]['ansible_user'] }}"
@@ -9,20 +19,21 @@
     append: yes
   register: user_changed
 
-- name: "Set user password separately"
+- name: "Init-User-SSH | Set user password separately"
   become: yes
   ansible.builtin.user:
     name: "{{ hostvars[inventory_hostname]['ansible_user'] }}"
     password: "{{ shared_password | password_hash('sha512') }}"
   when: user_changed.changed
 
-- name: "Test if authorized_keys exists"
+# 2. SSH KEYS (Copy root's authorized_keys to new user)
+- name: "Init-User-SSH | Test if authorized_keys exists"
   become: yes
   ansible.builtin.stat:
     path: /root/.ssh/authorized_keys
   register: root_ssh_key
 
-- name: "Create .ssh folder"
+- name: "Init-User-SSH | Create .ssh folder"
   become: yes
   ansible.builtin.file:
     path: "/home/{{ hostvars[inventory_hostname]['ansible_user'] }}/.ssh"
@@ -32,7 +43,7 @@
     mode: '0700'
   when: root_ssh_key.stat.exists
 
-- name: "Copy authorized_keys from root"
+- name: "Init-User-SSH | Copy authorized_keys from root"
   become: yes
   ansible.builtin.copy:
     src: /root/.ssh/authorized_keys
@@ -43,13 +54,14 @@
     mode: '0600'
   when: root_ssh_key.stat.exists
 
-- name: "Install firewalld"
+# 3. FIREWALLD (Install and configure for SSH access)
+- name: "Init-User-SSH | Install firewalld"
   ansible.builtin.dnf:
     name: firewalld
     state: present
   register: firewalld_change
 
-- name: "Ensure firewalld service is unmasked and enabled"
+- name: "Init-User-SSH | Ensure firewalld service is unmasked and enabled"
   ansible.builtin.systemd:
     name: firewalld
     state: started
@@ -57,7 +69,7 @@
     masked: no
   register: firewalld_change
 
-- name: "Ensure custom SSH port is allowed in {{ firewalld_default_zone }} zone"
+- name: "Init-User-SSH | Ensure custom SSH port is allowed in {{ firewalld_default_zone }} zone"
   ansible.builtin.firewalld:
     zone: "{{ firewalld_default_zone }}"
     port: "{{ hostvars[inventory_hostname]['ansible_port'] }}/tcp"
@@ -65,19 +77,20 @@
     state: enabled
     immediate: yes
 
-- name: "Set default zone to {{ firewalld_default_zone }} via command"
+- name: "Init-User-SSH | Set default zone to {{ firewalld_default_zone }}"
   ansible.builtin.command: "firewall-cmd --set-default-zone={{ firewalld_default_zone }}"
   register: result
   changed_when: "'success' in result.stdout"
   when: firewalld_change.changed
 
-- name: "Reload firewalld to apply changes"
+- name: "Init-User-SSH | Reload firewalld to apply changes"
   ansible.builtin.service:
     name: firewalld
     state: reloaded
   when: firewalld_change.changed
 
-- name: "Ensure custom SSH port is set"
+# 4. SSH CONFIGURATION (Hardening)
+- name: "Init-User-SSH | Ensure custom SSH port is set"
   ansible.builtin.lineinfile:
     path: /etc/ssh/sshd_config
     regexp: '^#?Port [0-9]+'
@@ -85,7 +98,7 @@
     state: present
   register: ssh_config_change
 
-- name: "Disable password authentication"
+- name: "Init-User-SSH | Disable password authentication"
   ansible.builtin.lineinfile:
     path: /etc/ssh/sshd_config
     regexp: '^#?(PasswordAuthentication|PermitEmptyPasswords).*'
@@ -93,7 +106,7 @@
     state: present
   register: ssh_config_change
 
-- name: "Disable root login"
+- name: "Init-User-SSH | Disable root login"
   ansible.builtin.lineinfile:
     path: /etc/ssh/sshd_config
     regexp: '^#?PermitRootLogin.*'
@@ -101,9 +114,8 @@
     state: present
   register: ssh_config_change
 
-- name: "Restart sshd service"
+- name: "Init-User-SSH | Restart sshd service"
   ansible.builtin.systemd:
     name: sshd
     state: restarted
   when: ssh_config_change.changed
-
