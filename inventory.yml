@@ -1,66 +1,392 @@
+# =============================================================================
+# ANSIBLE WORKSPACE - INVENTORY CONFIGURATION
+# =============================================================================
+# This file defines your infrastructure: servers, groups, and their configuration
+# 
+# STRUCTURE:
+# - all.vars: Global variables applied to all hosts
+# - all.hosts: Individual host definitions and their specific config
+# - all.children: Groups for organizing hosts
+#
+# VARIABLE PRECEDENCE (low to high):
+# 1. all.vars (global defaults)
+# 2. group_vars (per group)
+# 3. host_vars (per host - recommended for most configs)
+# 4. Extra vars (-e flag)
+#
+# INSTALLER VARIABLE NAMING:
+# - *_global: Applied to ALL hosts (defined in all.vars)
+# - *_host: Applied to SPECIFIC host only (defined in host section)
+# - These are COMBINED by the installer role
+# =============================================================================
+
 all:
+  # ===========================================================================
+  # GLOBAL VARIABLES (Applied to all hosts unless overridden)
+  # ===========================================================================
   vars:
-    ansible_become_password: "{{ vault_ansible_become_password }}"
+    # -------------------------------------------------------------------------
+    # CONNECTION SETTINGS
+    # -------------------------------------------------------------------------
+    # SSH private key for authentication
     ansible_ssh_private_key_file: "~/.ssh/id_ed25519"
+    
+    # SSH connection port (should match your hardened SSH config)
+    ansible_port: 33322
+    
+    # Sudo/become password (stored in encrypted vault)
+    ansible_become_password: "{{ vault_ansible_become_password }}"
+    
+    # -------------------------------------------------------------------------
+    # TEMPLATE OVERRIDE PATH
+    # -------------------------------------------------------------------------
+    # Path to private templates outside git repository
+    # Place custom installer templates here: override/installer/templates/
     override_path: "{{ playbook_dir }}/override"
+    
+    # -------------------------------------------------------------------------
+    # TELEGRAM NOTIFICATIONS (Optional)
+    # -------------------------------------------------------------------------
+    # Used by tgnotify custom installer for system notifications
     tg_notify_chat_id: "{{ vault_tg_notify_chat_id }}"
     tg_notify_bot_id: "{{ vault_tg_notify_bot_id }}"
-    install_config:
-      - name: "tgnotify"
-        check_file: "/usr/local/bin/tgnotify"
-        service:
-          - startup-tg-notify
-          
-    firewalld_default_zone: "drop"
-    firewalld_interfaces:
-      - { interface: "docker0", zone: "trusted", state: "enabled" }
-      - { interface: "wg-kube", zone: "trusted", state: "enabled" }
-    wireguard: "{{ vault_wireguard | from_yaml }}"
-    k3s_token: "{{vault_k3s_token}}"
+    
+    # -------------------------------------------------------------------------
+    # K3S / KUBERNETES CONFIGURATION (Optional)
+    # -------------------------------------------------------------------------
+    # Token for joining K3s cluster (keep in vault!)
+    k3s_token: "{{ vault_k3s_token }}"
+    
+    # Primary master node for cluster coordination
     k3s_primary_master_ip: "192.168.99.1"
     k3s_primary_master_name: "server.example.com"
+    
+    # -------------------------------------------------------------------------
+    # WIREGUARD VPN CONFIGURATION (Optional)
+    # -------------------------------------------------------------------------
+    # WireGuard configuration stored in vault as YAML
+    # Example structure:
+    #   interfaces:
+    #     - name: wg0
+    #       address: 10.0.0.1/24
+    #       listen_port: 51820
+    #       private_key: "..."
+    #       peers:
+    #         - public_key: "..."
+    #           allowed_ips: 10.0.0.2/32
+    wireguard: "{{ vault_wireguard | from_yaml }}"
+    
+    # -------------------------------------------------------------------------
+    # FIREWALLD GLOBAL SETTINGS
+    # -------------------------------------------------------------------------
+    # Default zone for incoming traffic (drop = deny all by default)
+    firewalld_default_zone: "drop"
+    
+    # Network interfaces and their zones
+    # 'trusted' zone allows all traffic between these interfaces
+    firewalld_interfaces:
+      - interface: "docker0"      # Docker bridge
+        zone: "trusted"
+        state: "enabled"
+      - interface: "wg-kube"      # WireGuard for K3s
+        zone: "trusted"
+        state: "enabled"
+      - interface: "eth1"         # Internal network example
+        zone: "internal"
+        state: "enabled"
+    
+    # IP ranges allowed in specific zones (optional)
+    firewalld_sources:
+      - source: "10.0.0.0/8"      # Corporate network
+        zone: "trusted"
+        state: "enabled"
+      - source: "192.168.100.0/24" # Office network
+        zone: "trusted"
+        state: "enabled"
+    
+    # Predefined services to allow (from /usr/lib/firewalld/services/)
+    firewalld_services:
+      - service: "ssh"
+        zone: "public"
+        state: "enabled"
+      - service: "http"
+        zone: "public"
+        state: "enabled"
+      - service: "https"
+        zone: "public"
+        state: "enabled"
+    
+    # Port forwarding rules (NAT)
+    firewalld_forwarding:
+      - external_port: "8080"
+        internal_port: "80"
+        internal_ip: "192.168.1.100"
+        proto: "tcp"
+        zone: "public"
+        state: "enabled"
+    
+    # Masquerade (SNAT) for internal networks
+    firewalld_masquerade:
+      - zone: "trusted"
+        state: "enabled"
+    
+    # Advanced granular rules
+    firewalld_rich_rules:
+      - source: "192.168.1.0/24"
+        port: "3306"
+        proto: "tcp"
+        action: "accept"
+        zone: "trusted"
+    
+    # -------------------------------------------------------------------------
+    # INSTALLER - GLOBAL STANDARD PACKAGES (Applied to ALL hosts)
+    # -------------------------------------------------------------------------
+    # These packages are installed on EVERY host via dnf/yum
+    # Service is started automatically after installation
+    # Use install_packages_host for host-specific additions
+    install_packages_global:
+      - name: "docker-ce"
+        # Repository URL (optional, for external repos)
+        repo: "https://download.docker.com/linux/centos/docker-ce.repo"
+        # List of packages to install
+        pkg:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-compose-plugin
+        # Systemd service(s) to enable and start
+        service: 
+          - docker
+      
+      - name: "utils"
+        # No repo needed - uses system repos
+        pkg:
+          - vim
+          - htop
+          - wget
+          - curl
+          - tcpdump
+          - bind-utils
+        # No service for utility packages
+    
+    # -------------------------------------------------------------------------
+    # INSTALLER - GLOBAL CUSTOM INSTALLATIONS (Applied to ALL hosts)
+    # -------------------------------------------------------------------------
+    # These use Jinja2 templates to generate installation scripts
+    # Template naming: {name}_installer.sh.j2
+    # Search order: override/installer/templates/ → roles/installer/templates/
+    # Use install_custom_host for host-specific additions
+    # 
+    # check_file: Marker file for idempotency (if exists = skip installation)
+    # To reinstall: delete the check_file on target host
+    install_custom_global:
+      - name: "tgnotify"
+        # This file must be created by the installer script
+        check_file: "/usr/local/bin/tgnotify"
+        # Template: tgnotify_installer.sh.j2
+        # Creates: tgnotify script, telegram.vars, systemd service
+    
+    # -------------------------------------------------------------------------
+    # DOCKER-COMPOSE SERVICES (Optional)
+    # -------------------------------------------------------------------------
+    # Deploys containerized applications
+    # Templates must be in: docker-compose/{name}.j2
+    # Data files: docker-compose/data/{name}/
+    docker_services:
+      - name: "traefik"
+        # Whether to sync data directory
+        has_data: true
+        # Container state: present (running) or absent (stopped/removed)
+        state: "present"
+        # Command to run before starting container
+        pre_start_command: "mkdir -p /opt/traefik/data"
+        # Health check configuration
+        healthcheck:
+          # Type: docker (use container healthcheck) or http (curl endpoint)
+          type: "http"
+          port: 8080
+          path: "/ping"
+          status_code: 200
+          retries: 12
+          delay: 5
+      
+      - name: "grafana"
+        has_data: true
+        state: "present"
+        healthcheck:
+          type: "http"
+          port: 3000
+          path: "/api/health"
+          status_code: 200
 
-
+  # ===========================================================================
+  # HOST DEFINITIONS
+  # ===========================================================================
   hosts:
+    # -------------------------------------------------------------------------
+    # BAREMETAL SERVER EXAMPLE
+    # -------------------------------------------------------------------------
     server.example.com:
+      # Connection settings
       ansible_host: 192.168.1.2
       ansible_user: karasik
       ansible_port: 33322
-      # K3s configuration
+      
+      # K3s node configuration
       k3s_node_ip: 192.168.99.1
-      k3s_node_type: mixed  # master, mixed, worker
+      k3s_node_type: mixed  # Options: master (control-plane only), worker (no control-plane), mixed (both)
       k3s_node_labels:
         - "topology.kubernetes.io/zone=dc1"
         - "node.kubernetes.io/instance-type=baremetal"
-      firewalld_default_allowed_ports:
-        - { port: '80', proto: 'tcp' }
-        - { port: '443', proto: 'tcp' }
+        - "node-role.kubernetes.io/master=true"
+        - "node-role.kubernetes.io/worker=true"
+      
+      # Host-specific firewall rules
+      firewalld_host_ports:
+        - port: "6443"        # Kubernetes API
+          proto: "tcp"
+          zone: "public"
+        - port: "10250"       # Kubelet
+          proto: "tcp"
+          zone: "trusted"
+        - port: "2379-2380"   # etcd
+          proto: "tcp"
+          zone: "trusted"
+        - port: "8472"       # Flannel VXLAN
+          proto: "udp"
+          zone: "trusted"
+      
+      # HOST-SPECIFIC PACKAGES (install_packages_global + install_packages_host)
+      # These are ADDED to install_packages_global, not replacing them
+      install_packages_host:
+        - name: "smartmontools"    # Disk monitoring for baremetal
+          pkg:
+            - smartmontools
+        
+        - name: "ipmitool"         # BMC management
+          pkg:
+            - ipmitool
+        
+        - name: "nginx"
+          repo: "https://nginx.org/packages/mainline/centos/9/x86_64/nginx.repo"
+          pkg: 
+            - nginx
+          service: 
+            - nginx
+      
+      # HOST-SPECIFIC CUSTOM INSTALLATIONS (install_custom_global + install_custom_host)
+      # These are ADDED to install_custom_global, not replacing them
+      install_custom_host:
+        - name: "node-exporter"
+          check_file: "/usr/local/bin/node_exporter"
+          # Template: node-exporter_installer.sh.j2
+          # Downloads binary from GitHub, creates systemd unit
+        
+        - name: "longhorn"
+          check_file: "/usr/local/bin/longhornctl"
+          # Template: longhorn_installer.sh.j2
+          # Sets up Longhorn prerequisites
+      
+      # Docker services for this host
+      docker_services:
+        - name: "portainer"
+          has_data: true
+          state: "present"
+    
+    # -------------------------------------------------------------------------
+    # VPS SERVER EXAMPLE
+    # -------------------------------------------------------------------------
     vps-somewhere:
       ansible_host: 1.1.1.1
       ansible_user: karasik
       ansible_port: 33322
-      # K3s configuration
+      
+      # K3s node configuration
       k3s_node_ip: 192.168.99.2
-      k3s_node_type: master  # dedicated control plane, no workloads
-      k3s_node_labels: []
-      firewalld_default_allowed_ports:
-        - { port: '80', proto: 'tcp' }
-        - { port: '443', proto: 'tcp' }
+      k3s_node_type: master  # Dedicated control plane, no workloads
+      k3s_node_labels: []    # No labels for dedicated master
+      
+      # Minimal firewall rules for VPS
+      firewalld_host_ports:
+        - port: "6443"        # Kubernetes API
+          proto: "tcp"
+          zone: "public"
+      
+      # No host-specific packages needed - uses install_packages_global only
+      # install_packages_host: []
+      
+      # No host-specific custom installations - uses install_custom_global only
+      # install_custom_host: []
 
+  # ===========================================================================
+  # HOST GROUPS
+  # ===========================================================================
   children:
+    # All servers
     servers:
       hosts:
         server.example.com:
         vps-somewhere:
-
+    
+    # Baremetal servers (physical machines)
     baremetal:
       hosts:
         server.example.com:
-
+      vars:
+        # Group-specific variables
+        firewalld_default_zone: "drop"
+    
+    # Virtual private servers
     vps:
       hosts:
         vps-somewhere:
-
+      vars:
+        # VPS-specific settings
+        firewalld_default_zone: "public"
+    
+    # Web servers (example of nested groups)
     webservers:
       children:
         servers:
+      vars:
+        # Variables for all webservers
+        # Can also use install_packages_host at group level
+        install_packages_host:
+          - name: "certbot"
+            pkg:
+              - certbot
+              - python3-certbot-nginx
+
+# =============================================================================
+# NOTES:
+# =============================================================================
+# 1. VAULT VARIABLES:
+#    - vault_ansible_become_password
+#    - vault_tg_notify_chat_id  
+#    - vault_tg_notify_bot_id
+#    - vault_wireguard
+#    - vault_k3s_token
+#    Store these in: group_vars/all/vault.yml (encrypted with ansible-vault)
+#
+# 2. INSTALLER VARIABLE MERGING:
+#    install_packages_global + install_packages_host = combined_packages
+#    install_custom_global + install_custom_host = combined_custom
+#    This allows you to define common packages globally and add host-specific ones
+#
+# 3. TEMPLATE OVERRIDES:
+#    Place custom templates in: override/installer/templates/
+#    They take precedence over role templates
+#
+# 4. HOST-SPECIFIC CONFIG:
+#    For complex per-host configs, create: host_vars/{hostname}.yml
+#    This keeps inventory.yml clean and manageable
+#
+# 5. CHECK FILES:
+#    Custom installers use check_file for idempotency
+#    Delete check_file to force reinstallation: 
+#    ansible host -m file -a "path=/path/to/check_file state=absent" --become
+#
+# 6. DEBUGGING:
+#    Use -vvv flag for verbose output: ansible-playbook site.yml -vvv
+#    Check template lookup: ansible-playbook site.yml -vvv | grep template
+# =============================================================================

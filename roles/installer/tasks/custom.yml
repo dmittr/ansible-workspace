@@ -7,14 +7,20 @@
 # - Creating systemd units manually
 # - Running custom installation scripts
 # Uses check_file as idempotency marker
+# Combines global (install_custom_global) and host-specific (install_custom_host) configs
 # =============================================================================
+
+# 0. COMBINE GLOBAL AND HOST-SPECIFIC CUSTOM CONFIGURATIONS
+- name: "Installer Custom | Combine custom configurations"
+  set_fact:
+    combined_custom: "{{ install_custom_global | default([]) + install_custom_host | default([]) }}"
 
 # 1. CHECK IDEMPOTENCY (Verify if already installed)
 - name: "Installer Custom | Check if already installed"
   become: true
   stat:
     path: "{{ item.check_file }}"
-  loop: "{{ install_custom }}"
+  loop: "{{ combined_custom }}"
   loop_control:
     label: "Check: {{ item.name }} -> {{ item.check_file }}"
   register: check_file_stat
@@ -34,7 +40,7 @@
     search_files:
       - "{{ override_path | default(playbook_dir + '/override') }}/{{ ansible_role_name }}/templates/{{ item.name }}_installer.sh.j2"
       - "{{ role_path }}/templates/{{ item.name }}_installer.sh.j2"
-  loop: "{{ install_custom }}"
+  loop: "{{ combined_custom }}"
   loop_control:
     label: "Template: {{ item.name }}"
   when: item.name in (custom_needs_install | default([]))
@@ -55,7 +61,7 @@
     src: "{{ custom_template_map[item.name] }}"
     dest: "/opt/ansible-workspace-installer/{{ item.name }}_installer.sh"
     mode: '0750'
-  loop: "{{ install_custom }}"
+  loop: "{{ combined_custom }}"
   loop_control:
     label: "Deploy: {{ item.name }}"
   when:
@@ -69,7 +75,7 @@
 - name: "Installer Custom | Execute installer scripts"
   become: true
   shell: "/opt/ansible-workspace-installer/{{ item.name }}_installer.sh"
-  loop: "{{ install_custom }}"
+  loop: "{{ combined_custom }}"
   loop_control:
     label: "Execute: {{ item.name }}"
   when:

@@ -63,24 +63,46 @@ Manages firewall configuration:
 
 Universal installer supporting two modes:
 
-#### Standard Installation (`install_packages`)
-Repository-based package installation via dnf:
+#### Standard Installation (`install_packages_global` + `install_packages_host`)
+Repository-based package installation via dnf. Supports two levels:
+- **`install_packages_global`**: Applied to ALL hosts (defined in `all.vars`)
+- **`install_packages_host`**: Applied to specific host only (defined in host section)
+- These are **combined** by the installer role
+
 ```yaml
-install_packages:
+# In all.vars (global for all hosts)
+install_packages_global:
   - name: docker-ce
     repo: "https://download.docker.com/linux/centos/docker-ce.repo"
     pkg:
       - docker-ce
       - docker-ce-cli
     service: docker
+
+# In host section (host-specific additions)
+install_packages_host:
+  - name: nginx
+    repo: "..."
+    pkg: [nginx]
+    service: nginx
 ```
 
-#### Custom Installation (`install_custom`)
-Binary/script installations with idempotency check:
+#### Custom Installation (`install_custom_global` + `install_custom_host`)
+Binary/script installations with idempotency check using Jinja2 templates:
+- **`install_custom_global`**: Applied to ALL hosts
+- **`install_custom_host`**: Applied to specific host only
+- These are **combined** by the installer role
+
 ```yaml
-install_custom:
+# In all.vars
+custom_packages_global:
+  - name: tgnotify
+    check_file: "/usr/local/bin/tgnotify"
+
+# In host section
+custom_packages_host:
   - name: node-exporter
-    check_file: "/etc/systemd/system/node_exporter.service"
+    check_file: "/usr/local/bin/node_exporter"
 ```
 
 Custom installations use Jinja2 templates:
@@ -129,8 +151,8 @@ all:
     server.example.com:
       ansible_host: 192.168.1.2
       ansible_user: admin
-      # Host-specific installer config
-      install_packages:
+      # Host-specific installer config (added to install_packages_global)
+      install_packages_host:
         - name: docker-ce
           repo: "..."
           pkg: [docker-ce]
@@ -174,23 +196,41 @@ ansible-vault edit group_vars/all/vault.yml
 
 ### Run Specific Role
 ```bash
-ansible-playbook -e "install_packages=[{name: nginx,pkg: [nginx]}]" roles/installer/tasks/main.yml
+# Install packages globally
+ansible-playbook -e "install_packages_global=[{name: nginx,pkg: [nginx]}]" roles/installer/tasks/main.yml
+
+# Or for specific host
+ansible-playbook -e "install_packages_host=[{name: nginx,pkg: [nginx]}]" -l server.example.com roles/installer/tasks/main.yml
 ```
 
 ## Installer Examples
 
 ### Standard: Install Nginx
 ```yaml
-install_packages:
+# In all.vars (global)
+install_packages_global:
   - name: nginx
     repo: "https://nginx.org/packages/centos/nginx.repo"
+    pkg: [nginx]
+    service: nginx
+
+# Or in host section (host-specific)
+install_packages_host:
+  - name: nginx
+    repo: "..."
     pkg: [nginx]
     service: nginx
 ```
 
 ### Custom: Install Node Exporter
 ```yaml
-install_custom:
+# In all.vars (global for all hosts)
+install_custom_global:
+  - name: node-exporter
+    check_file: "/usr/local/bin/node_exporter"
+
+# Or in host section (host-specific)
+install_custom_host:
   - name: node-exporter
     check_file: "/usr/local/bin/node_exporter"
 ```

@@ -3,7 +3,13 @@
 # INSTALLER STANDARD - Repository-based package installation
 # =============================================================================
 # Installs packages from YUM/DNF repositories and manages systemd services
+# Combines global (install_packages_global) and host-specific (install_packages_host) configs
 # =============================================================================
+
+# 0. COMBINE GLOBAL AND HOST-SPECIFIC PACKAGE CONFIGURATIONS
+- name: "Installer Standard | Combine package configurations"
+  set_fact:
+    combined_packages: "{{ install_packages_global | default([]) + install_packages_host | default([]) }}"
 
 # 1. REPOSITORIES (Add external YUM/DNF repositories)
 - name: "Installer Standard | Add repositories"
@@ -12,7 +18,7 @@
     url: "{{ item.repo }}"
     dest: "/etc/yum.repos.d/{{ item.name }}.repo"
     mode: '0644'
-  loop: "{{ install_packages }}"
+  loop: "{{ combined_packages }}"
   loop_control:
     label: "Repo: {{ item.name }}"
   when: item.repo is defined and item.repo | length > 0
@@ -23,7 +29,7 @@
   dnf:
     name: "{{ item.pkg }}"
     state: present
-  loop: "{{ install_packages }}"
+  loop: "{{ combined_packages }}"
   loop_control:
     label: "Pkg: {{ item.name }}"
   when: item.pkg is defined and item.pkg | length > 0
@@ -35,7 +41,7 @@
     name: "{{ service_item.1 }}"
     state: started
     enabled: yes
-  loop: "{{ install_packages | subelements('service', skip_missing=True) }}"
+  loop: "{{ combined_packages | subelements('service', skip_missing=True) }}"
   loop_control:
     loop_var: service_item
     label: "Service: {{ service_item.1 }}"
